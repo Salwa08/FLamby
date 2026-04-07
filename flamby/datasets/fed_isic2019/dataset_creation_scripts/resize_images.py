@@ -70,7 +70,7 @@ if __name__ == "__main__":
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    cc = True
+    cc = False
     sz = 224
 
     Parallel(n_jobs=32)(

@@ -9,6 +9,10 @@ import dataset
 import torch
 from sklearn import metrics
 
+# Albumentations >=2 removed Flip; FLamby dataset code still expects it.
+if not hasattr(albumentations, "Flip"):
+    albumentations.Flip = albumentations.HorizontalFlip
+
 from flamby.datasets.fed_isic2019 import (
     BATCH_SIZE,
     LR,

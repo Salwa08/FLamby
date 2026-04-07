@@ -140,16 +140,34 @@ class FedIsic2019(Isic2019Raw):
     ):
         """Cf class docstring"""
         sz = 200
+
+        flip_transform = (
+            albumentations.Flip(p=0.5)
+            if hasattr(albumentations, "Flip")
+            else albumentations.HorizontalFlip(p=0.5)
+        )
+
+        try:
+            coarse_dropout = albumentations.CoarseDropout(random.randint(1, 8), 16, 16)
+        except (TypeError, ValueError):
+            holes = random.randint(1, 8)
+            coarse_dropout = albumentations.CoarseDropout(
+                num_holes_range=(holes, holes),
+                hole_height_range=(16, 16),
+                hole_width_range=(16, 16),
+                p=0.5,
+            )
+
         if train:
             augmentations = albumentations.Compose(
                 [
                     albumentations.RandomScale(0.07),
                     albumentations.Rotate(50),
                     albumentations.RandomBrightnessContrast(0.15, 0.1),
-                    albumentations.Flip(p=0.5),
+                    flip_transform,
                     albumentations.Affine(shear=0.1),
                     albumentations.RandomCrop(sz, sz),
-                    albumentations.CoarseDropout(random.randint(1, 8), 16, 16),
+                    coarse_dropout,
                     albumentations.Normalize(always_apply=True),
                 ]
             )
