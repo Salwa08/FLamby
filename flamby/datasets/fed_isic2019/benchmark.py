@@ -4,6 +4,9 @@ import os
 import random
 import time
 
+# Albumentations tries to fetch online version info on import; disable for offline labs.
+os.environ.setdefault("ALBUMENTATIONS_DISABLE_VERSION_CHECK", "1")
+
 import albumentations
 import dataset
 import torch
@@ -199,6 +202,31 @@ def main(args):
     num_epochs = NUM_EPOCHS_POOLED
 
     t0 = time.time()
+
+    # Optionally enable Opacus DP wrapping for the training pipeline if CLI
+    # flags are provided.
+    if getattr(args, "dp_epsilon", None) is not None and getattr(
+        args, "dp_delta", None
+    ) is not None and getattr(args, "dp_max_grad_norm", None) is not None:
+        try:
+            from flamby.utils import enable_opacus_privacy
+
+            print("Enabling Opacus DP: target_epsilon=", args.dp_epsilon)
+            model, optimizer, train_dataloader, privacy_engine = enable_opacus_privacy(
+                module=model,
+                optimizer=optimizer,
+                train_loader=train_dataloader,
+                epochs=num_epochs,
+                target_epsilon=args.dp_epsilon,
+                target_delta=args.dp_delta,
+                max_grad_norm=args.dp_max_grad_norm,
+                seed=getattr(args, "dp_seed", None),
+                device=device,
+            )
+            dataloaders["train"] = train_dataloader
+        except ImportError:
+            print("Opacus not installed; run pip install opacus to enable DP")
+
     model = train_model(
         model,
         optimizer,
@@ -226,6 +254,30 @@ if __name__ == "__main__":
     parser.add_argument(
         "--workers", type=int, default=4, help="Numbers of workers for the dataloader"
     )
+    parser.add_argument(
+        "--dp_epsilon",
+        type=float,
+        default=None,
+        help="Target epsilon for Opacus DP (enable DP when set)",
+    )
+    parser.add_argument(
+        "--dp_delta",
+        type=float,
+        default=None,
+        help="Target delta for Opacus DP (required when enabling DP)",
+    )
+    parser.add_argument(
+        "--dp_max_grad_norm",
+        type=float,
+        default=None,
+        help="Max per-sample grad norm for Opacus DP (required when enabling DP)",
+    )
+    parser.add_argument(
+        "--dp_seed",
+        type=int,
+        default=None,
+        help="Optional seed for Opacus noise generator",
+    )
     args = parser.parse_args()
 
     main(args)
@@ -234,7 +286,7 @@ if __name__ == "__main__":
 
     sz = 200
     test_aug = albumentations.Compose(
-        [albumentations.CenterCrop(sz, sz), albumentations.Normalize(always_apply=True)]
+        [albumentations.CenterCrop(sz, sz), albumentations.Normalize()]
     )
     test_dataset = dataset.FedIsic2019(train=False, pooled=True)
     test_dataloader = torch.utils.data.DataLoader(

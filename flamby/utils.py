@@ -15,6 +15,85 @@ import flamby.datasets as datasets
 torch.manual_seed(42)
 
 
+def enable_opacus_privacy(
+    module,
+    optimizer,
+    train_loader,
+    epochs,
+    target_epsilon,
+    target_delta,
+    max_grad_norm,
+    seed=None,
+    device=None,
+):
+    """Wrap model/optimizer/dataloader with Opacus PrivacyEngine using
+    the target-epsilon API.
+
+    Returns (module, optimizer, train_loader, privacy_engine)
+    """
+    try:
+        from opacus import PrivacyEngine
+        from opacus.validators import ModuleValidator
+    except Exception:
+        raise ImportError(
+            "Opacus is required for DP training. Please install opacus."
+        )
+
+    privacy_engine = PrivacyEngine()
+
+    gen = None
+    if seed is not None:
+        dev = device
+        if dev is None:
+            dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        gen = torch.Generator(dev).manual_seed(seed)
+
+    # Fix/validate module to replace unsupported layers (BatchNorm -> GroupNorm)
+    try:
+        fixed_module = ModuleValidator.fix(module)
+        ModuleValidator.validate(fixed_module, strict=False)
+        module = fixed_module
+    except Exception:
+        # If validator fails, continue and let Opacus raise the proper error
+        pass
+
+    # If ModuleValidator changed module parameters (e.g. replaced BatchNorm -> GroupNorm),
+    # the original optimizer's parameter references will be invalid. Recreate the optimizer
+    # with the same class and hyperparameters so it matches the fixed module.
+    try:
+        import warnings as _warnings
+
+        OptClass = optimizer.__class__
+        defaults = getattr(optimizer, "defaults", None)
+        if defaults:
+            optimizer = OptClass(module.parameters(), **defaults)
+        else:
+            # Fall back to constructing kwargs from first param_group
+            pg = dict(optimizer.param_groups[0]) if optimizer.param_groups else {}
+            pg.pop("params", None)
+            pg.pop("initial_lr", None)
+            optimizer = OptClass(module.parameters(), **pg)
+        _warnings.warn(
+            "Recreated optimizer to match fixed module parameters; optimizer state reset."
+        )
+    except Exception:
+        # If recreation fails, let Opacus raise the appropriate error below.
+        pass
+
+    module, optimizer, train_loader = privacy_engine.make_private_with_epsilon(
+        module=module,
+        optimizer=optimizer,
+        data_loader=train_loader,
+        epochs=epochs,
+        target_epsilon=target_epsilon,
+        target_delta=target_delta,
+        max_grad_norm=max_grad_norm,
+        noise_generator=gen,
+    )
+
+    return module, optimizer, train_loader, privacy_engine
+
+
 def evaluate_model_on_tests(
     model, test_dataloaders, metric, use_gpu=True, return_pred=False
 ):
