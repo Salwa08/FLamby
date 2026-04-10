@@ -4,9 +4,6 @@ import os
 import random
 import time
 
-# Albumentations tries to fetch online version info on import; disable for offline labs.
-os.environ.setdefault("ALBUMENTATIONS_DISABLE_VERSION_CHECK", "1")
-
 import albumentations
 import dataset
 import torch
@@ -202,31 +199,6 @@ def main(args):
     num_epochs = NUM_EPOCHS_POOLED
 
     t0 = time.time()
-
-    # Optionally enable Opacus DP wrapping for the training pipeline if CLI
-    # flags are provided.
-    if getattr(args, "dp_epsilon", None) is not None and getattr(
-        args, "dp_delta", None
-    ) is not None and getattr(args, "dp_max_grad_norm", None) is not None:
-        try:
-            from flamby.utils import enable_opacus_privacy
-
-            print("Enabling Opacus DP: target_epsilon=", args.dp_epsilon)
-            model, optimizer, train_dataloader, privacy_engine = enable_opacus_privacy(
-                module=model,
-                optimizer=optimizer,
-                train_loader=train_dataloader,
-                epochs=num_epochs,
-                target_epsilon=args.dp_epsilon,
-                target_delta=args.dp_delta,
-                max_grad_norm=args.dp_max_grad_norm,
-                seed=getattr(args, "dp_seed", None),
-                device=device,
-            )
-            dataloaders["train"] = train_dataloader
-        except ImportError:
-            print("Opacus not installed; run pip install opacus to enable DP")
-
     model = train_model(
         model,
         optimizer,
@@ -279,29 +251,6 @@ if __name__ == "__main__":
         help="Optional seed for Opacus noise generator",
     )
     args = parser.parse_args()
-
-    main(args)
-
-    # loading the saved model and running evaluate_model_on_tests
-
-    sz = 200
-    test_aug = albumentations.Compose(
-        [albumentations.CenterCrop(sz, sz), albumentations.Normalize()]
-    )
-    test_dataset = dataset.FedIsic2019(train=False, pooled=True)
-    test_dataloader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        num_workers=args.workers,
-        drop_last=True,
-    )
-
-    model = Baseline()
-    dict = check_dataset_from_config(dataset_name="fed_isic2019", debug=False)
-    input_path = dict["dataset_path"]
-    dic = {"model_dest": os.path.join(input_path, "saved_model_state_dict")}
-    model.load_state_dict(torch.load(dic["model_dest"]))
-    model.eval()
-    torch.use_deterministic_algorithms(False)
+torch.use_deterministic_algorithms(False)
     print(evaluate_model_on_tests(model, [test_dataloader], metric, use_gpu=True))
+always_apply=True
